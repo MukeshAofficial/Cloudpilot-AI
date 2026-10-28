@@ -5,9 +5,10 @@ import { CloudVisual } from './CloudVisual';
 interface HeroProps {
   onOpenAccess: () => void;
   onSelectPrompt: (prompt: string) => void;
+  onOpenWorkspace?: () => void;
 }
 
-export const Hero: React.FC<HeroProps> = ({ onOpenAccess, onSelectPrompt }) => {
+export const Hero: React.FC<HeroProps> = ({ onOpenAccess, onSelectPrompt, onOpenWorkspace }) => {
   return (
     <section className="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28">
       {/* Background ambient lighting */}
@@ -51,13 +52,24 @@ export const Hero: React.FC<HeroProps> = ({ onOpenAccess, onSelectPrompt }) => {
               </a>
 
               {/* Secondary: Go to TerraGen */}
-              <a
-                href="#terragen"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-5 py-3.5 text-sm font-semibold text-indigo-200 hover:bg-indigo-500/20 hover:border-indigo-400 hover:text-white transition-all cursor-pointer whitespace-nowrap"
-              >
-                <span>Go to TerraGen</span>
-                <ArrowDown className="h-4 w-4 text-indigo-400" />
-              </a>
+              {onOpenWorkspace ? (
+                <button
+                  type="button"
+                  onClick={onOpenWorkspace}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-5 py-3.5 text-sm font-semibold text-indigo-200 hover:bg-indigo-500/20 hover:border-indigo-400 hover:text-white transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Sparkles className="h-4 w-4 text-indigo-400" />
+                  <span>Launch TerraGen Workspace</span>
+                </button>
+              ) : (
+                <a
+                  href="#terragen"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-5 py-3.5 text-sm font-semibold text-indigo-200 hover:bg-indigo-500/20 hover:border-indigo-400 hover:text-white transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <span>Go to TerraGen</span>
+                  <ArrowDown className="h-4 w-4 text-indigo-400" />
+                </a>
+              )}
 
               {/* Get Instant Access */}
               <button

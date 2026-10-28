@@ -2,5 +2,7 @@
   "name": "CloudPilot AI",
   "description": "Build, control, and fix your cloud with simple words. Futuristic AI cloud companion with CloudTalk natural-language operations and TerraGen secure Terraform generation.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

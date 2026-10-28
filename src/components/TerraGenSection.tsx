@@ -14,9 +14,10 @@ import {
 
 interface TerraGenSectionProps {
   onOpenAccess: () => void;
+  onOpenWorkspace?: () => void;
 }
 
-export const TerraGenSection: React.FC<TerraGenSectionProps> = ({ onOpenAccess }) => {
+export const TerraGenSection: React.FC<TerraGenSectionProps> = ({ onOpenAccess, onOpenWorkspace }) => {
   const securityPillars = [
     {
       title: 'Security-Conscious Networking',
@@ -114,10 +115,10 @@ export const TerraGenSection: React.FC<TerraGenSectionProps> = ({ onOpenAccess }
           <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto">
             <button
               type="button"
-              onClick={onOpenAccess}
+              onClick={onOpenWorkspace || onOpenAccess}
               className="glow-button w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg cursor-pointer whitespace-nowrap"
             >
-              <span>Go to TerraGen</span>
+              <span>Go to TerraGen Workspace</span>
               <ArrowRight className="h-4 w-4" />
             </button>
             <a

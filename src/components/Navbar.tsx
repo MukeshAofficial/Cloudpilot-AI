@@ -3,9 +3,10 @@ import { Cloud, Terminal, Shield, Menu, X, ArrowRight } from 'lucide-react';
 
 interface NavbarProps {
   onOpenAccess: () => void;
+  onOpenWorkspace?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenAccess }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenAccess, onOpenWorkspace }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -48,10 +49,29 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAccess }) => {
               {link.label}
             </a>
           ))}
+          {onOpenWorkspace && (
+            <button
+              type="button"
+              onClick={onOpenWorkspace}
+              className="whitespace-nowrap text-cyan-300 hover:text-cyan-200 font-semibold cursor-pointer flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span>TerraGen Workspace</span>
+            </button>
+          )}
         </nav>
 
         {/* Zone 3: Primary Action */}
-        <div className="hidden md:flex items-center gap-4 shrink-0">
+        <div className="hidden md:flex items-center gap-3 shrink-0">
+          {onOpenWorkspace && (
+            <button
+              type="button"
+              onClick={onOpenWorkspace}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/20 hover:text-white transition-all cursor-pointer whitespace-nowrap"
+            >
+              <span>Launch IDE</span>
+            </button>
+          )}
           <button
             onClick={onOpenAccess}
             className="glow-button inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition-all cursor-pointer whitespace-nowrap"
