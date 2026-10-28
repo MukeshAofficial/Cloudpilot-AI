@@ -1,4 +1,4 @@
-"""# CloudPilot AI ☁️
+# CloudPilot AI ☁️
 
 **Build, control, and fix your cloud with simple words.**
 
@@ -31,8 +31,3 @@ This repository is under development. Setup and usage instructions will be added
 ## Contributing
 
 Suggestions and contributions are welcome. Open an issue to discuss a bug, feature idea, or improvement before submitting a pull request.
-
-## License
-
-No license has been specified yet. All rights are reserved unless a license is added to this repository.
-"""
