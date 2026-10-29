@@ -1,13 +1,15 @@
 import { ProjectData } from '../types/workspace';
+import { synchronizeProjectState } from '../utils/terraformSync';
 
-export const INITIAL_PROJECTS: ProjectData[] = [
+const RAW_PROJECTS: ProjectData[] = [
   {
     id: 'proj-serverless-vpc',
     name: 'Production VPC & Serverless API',
-    description: 'High-availability multi-tier architecture with VPC, private subnet isolated Lambda, S3, and least-privilege IAM.',
+    description:
+      'Simulated multi-tier AWS topology with VPC, Public/Private Subnets, IGW, Route Tables, Security Group, Lambda, S3, IAM, and CloudWatch.',
     region: 'us-east-1',
-    updatedAt: '2 mins ago',
-    activeFileName: 'main.tf',
+    updatedAt: 'Simulated sample',
+    activeFileName: 'vpc.tf',
     files: {
       'main.tf': `terraform {
   required_version = ">= 1.8.0"
@@ -26,12 +28,12 @@ provider "aws" {
     tags = {
       Environment = var.environment
       ManagedBy   = "TerraGen-AI"
-      Project     = "CloudPilot-Production"
+      Simulation  = "true"
     }
   }
 }
 
-# Lambda function running inside VPC private subnet
+# Lambda function attached to isolated VPC private subnet
 resource "aws_lambda_function" "order_processor" {
   function_name = "\${var.environment}-order-processor"
   role          = aws_iam_role.lambda_exec.arn
@@ -57,9 +59,9 @@ resource "aws_lambda_function" "order_processor" {
   }
 }
 
-# Primary S3 bucket with strict security defaults
+# Primary S3 bucket with strict public access block
 resource "aws_s3_bucket" "primary_storage" {
-  bucket        = "cloudpilot-prod-app-assets-\${var.environment}"
+  bucket        = "cloudpilot-sim-app-assets-\${var.environment}"
   force_destroy = false
 }
 
@@ -72,12 +74,13 @@ resource "aws_s3_bucket_public_access_block" "storage_block" {
   restrict_public_buckets = true
 }
 
-# CloudWatch log group for Lambda telemetry
+# CloudWatch log group for structured Lambda telemetry
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/\${aws_lambda_function.order_processor.function_name}"
   retention_in_days = 30
-}`,
-      'vpc.tf': `# VPC Network Infrastructure
+}
+`,
+      'vpc.tf': `# VPC Network Topology (Simulated Sample Configuration)
 resource "aws_vpc" "main_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -96,7 +99,7 @@ resource "aws_internet_gateway" "main_igw" {
   }
 }
 
-# Public Subnet tier
+# Public Subnet Tier (us-east-1a)
 resource "aws_subnet" "public_subnet_a" {
   vpc_id                  = aws_vpc.main_vpc.id
   cidr_block              = "10.0.1.0/24"
@@ -109,7 +112,25 @@ resource "aws_subnet" "public_subnet_a" {
   }
 }
 
-# Private Subnet tier (No direct public route)
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main_igw.id
+  }
+
+  tags = {
+    Name = "\${var.environment}-public-rt"
+  }
+}
+
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public_subnet_a.id
+  route_table_id = aws_route_table.public_rt.id
+}
+
+# Private App Subnet Tier (us-east-1a - Zero Direct Internet Route)
 resource "aws_subnet" "private_subnet_a" {
   vpc_id                  = aws_vpc.main_vpc.id
   cidr_block              = "10.0.2.0/24"
@@ -122,24 +143,38 @@ resource "aws_subnet" "private_subnet_a" {
   }
 }
 
-# Security group with restricted ingress
+resource "aws_route_table" "private_rt" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  tags = {
+    Name = "\${var.environment}-private-rt"
+  }
+}
+
+resource "aws_route_table_association" "private_assoc" {
+  subnet_id      = aws_subnet.private_subnet_a.id
+  route_table_id = aws_route_table.private_rt.id
+}
+
+# Stateful Security Group for Private Lambda ENI
 resource "aws_security_group" "lambda_sg" {
   name        = "\${var.environment}-lambda-sg"
-  description = "Restricted ingress/egress for private compute"
+  description = "Zero inbound rules; stateful HTTPS 443 egress for private compute"
   vpc_id      = aws_vpc.main_vpc.id
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
     Name = "\${var.environment}-lambda-sg"
   }
-}`,
-      'iam.tf': `# IAM Execution Roles & Policies
+}
+`,
+      'iam.tf': `# IAM Execution Roles & Scoped Least-Privilege Policies
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -155,13 +190,12 @@ resource "aws_iam_role" "lambda_exec" {
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
 }
 
-# Attach AWS managed VPC execution policy
 resource "aws_iam_role_policy_attachment" "lambda_vpc" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-# Tightly scoped policy for S3 bucket access - NO WILDCARDS
+# Granular S3 object policy - Zero wildcard (*) actions
 resource "aws_iam_policy" "s3_access" {
   name = "\${var.environment}-lambda-s3-scoped"
 
@@ -180,32 +214,35 @@ resource "aws_iam_policy" "s3_access" {
 resource "aws_iam_role_policy_attachment" "s3_attach" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = aws_iam_policy.s3_access.arn
-}`,
+}
+`,
       'variables.tf': `variable "aws_region" {
   type        = string
-  description = "Target AWS Region"
+  description = "Simulated target AWS Region"
   default     = "us-east-1"
 }
 
 variable "environment" {
   type        = string
-  description = "Target deployment environment"
+  description = "Deployment tier identifier"
   default     = "production"
-}`,
+}
+`,
       'outputs.tf': `output "vpc_id" {
-  description = "Identifier of the created VPC"
+  description = "Simulated identifier of the created VPC"
   value       = aws_vpc.main_vpc.id
 }
 
 output "lambda_arn" {
-  description = "ARN of the order processor function"
+  description = "Simulated ARN of the order processor Lambda"
   value       = aws_lambda_function.order_processor.arn
 }
 
 output "s3_bucket_name" {
-  description = "Name of the secure storage bucket"
+  description = "Name of the private storage bucket"
   value       = aws_s3_bucket.primary_storage.id
-}`,
+}
+`,
     },
     messages: [
       {
@@ -213,230 +250,33 @@ output "s3_bucket_name" {
         sender: 'assistant',
         timestamp: '10:00 AM',
         content:
-          'Welcome to the TerraGen AI Workspace. I have initialized your project with a multi-tier production VPC, isolated private subnet Lambda, S3 public access block, and least-privilege IAM policies. What architectural changes would you like to make?',
-        changedFiles: ['main.tf', 'vpc.tf', 'iam.tf', 'variables.tf', 'outputs.tf'],
-        addedResources: ['aws_vpc', 'aws_subnet', 'aws_lambda_function', 'aws_s3_bucket', 'aws_iam_role'],
-        securityNote: 'Default encryption and CIS Benchmark 1.2 rules enforced.',
+          'Initialized simulated AWS topology from your Terraform HCL: Region `us-east-1`, VPC `10.0.0.0/16`, Public & Private Subnets, Internet Gateway, Route Tables, Security Group, isolated Lambda, S3, IAM, and CloudWatch. Try asking to add a NAT Gateway or KMS CMK encryption.',
+        changedFiles: ['vpc.tf', 'main.tf', 'iam.tf', 'variables.tf', 'outputs.tf'],
+        addedResources: [
+          'aws_vpc.main_vpc',
+          'aws_subnet.public_subnet_a',
+          'aws_subnet.private_subnet_a',
+          'aws_route_table.public_rt',
+          'aws_route_table.private_rt',
+          'aws_security_group.lambda_sg',
+          'aws_lambda_function.order_processor',
+          'aws_s3_bucket.primary_storage',
+        ],
+        securityNote: 'Simulated HCL model — no live AWS credentials or cloud connection used.',
       },
     ],
-    nodes: [
-      {
-        id: 'region-group',
-        type: 'regionNode',
-        position: { x: 40, y: 30 },
-        data: { label: 'AWS Region: us-east-1' },
-      },
-      {
-        id: 'vpc-main',
-        type: 'vpcNode',
-        position: { x: 70, y: 90 },
-        data: {
-          label: 'VPC: 10.0.0.0/16',
-          name: 'production-vpc',
-          cidr: '10.0.0.0/16',
-          file: 'vpc.tf',
-        },
-      },
-      {
-        id: 'igw-main',
-        type: 'awsNode',
-        position: { x: 100, y: 150 },
-        data: {
-          label: 'Internet Gateway',
-          service: 'network',
-          category: 'AWS IGW',
-          arn: 'arn:aws:ec2:us-east-1:123456789012:internet-gateway/igw-08a912',
-          details: 'Direct internet connectivity for public subnets',
-          status: 'valid',
-          file: 'vpc.tf',
-        },
-      },
-      {
-        id: 'subnet-pub-1',
-        type: 'awsNode',
-        position: { x: 320, y: 150 },
-        data: {
-          label: 'Public Subnet (10.0.1.0/24)',
-          service: 'network',
-          category: 'AWS Subnet',
-          arn: 'arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01public',
-          details: 'Subnet tier with map_public_ip_on_launch = false',
-          status: 'valid',
-          file: 'vpc.tf',
-        },
-      },
-      {
-        id: 'subnet-priv-1',
-        type: 'awsNode',
-        position: { x: 320, y: 280 },
-        data: {
-          label: 'Private Subnet (10.0.2.0/24)',
-          service: 'network',
-          category: 'AWS Subnet',
-          arn: 'arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02private',
-          details: 'Isolated network tier with zero direct internet access',
-          status: 'valid',
-          file: 'vpc.tf',
-        },
-      },
-      {
-        id: 'lambda-1',
-        type: 'awsNode',
-        position: { x: 570, y: 280 },
-        data: {
-          label: 'Lambda: order-processor',
-          service: 'compute',
-          category: 'AWS Lambda',
-          arn: 'arn:aws:lambda:us-east-1:123456789012:function:order-processor',
-          details: 'Node.js 20.x runtime inside VPC private subnet with active X-Ray tracing',
-          status: 'valid',
-          file: 'main.tf',
-        },
-      },
-      {
-        id: 's3-bucket-1',
-        type: 'awsNode',
-        position: { x: 800, y: 280 },
-        data: {
-          label: 'S3: app-assets-prod',
-          service: 'storage',
-          category: 'Amazon S3',
-          arn: 'arn:aws:s3:::cloudpilot-prod-app-assets',
-          details: 'Block all public access enabled, private object ACLs',
-          status: 'valid',
-          file: 'main.tf',
-        },
-      },
-      {
-        id: 'iam-role-1',
-        type: 'awsNode',
-        position: { x: 570, y: 150 },
-        data: {
-          label: 'IAM: order-processor-role',
-          service: 'security',
-          category: 'AWS IAM',
-          arn: 'arn:aws:iam::123456789012:role/order-processor-role',
-          details: 'Scoped least-privilege policy without wildcard statements',
-          status: 'valid',
-          file: 'iam.tf',
-        },
-      },
-      {
-        id: 'cloudwatch-1',
-        type: 'awsNode',
-        position: { x: 570, y: 410 },
-        data: {
-          label: 'CloudWatch: /aws/lambda/logs',
-          service: 'observability',
-          category: 'AWS CloudWatch',
-          arn: 'arn:aws:logs:us-east-1:123456789012:log-group:/aws/lambda/order-processor',
-          details: '30-day retention with error alarm metric filters',
-          status: 'valid',
-          file: 'main.tf',
-        },
-      },
-    ],
-    edges: [
-      { id: 'e-igw-pub', source: 'igw-main', target: 'subnet-pub-1', animated: true, style: { stroke: '#38BDF8' } },
-      { id: 'e-pub-priv', source: 'subnet-pub-1', target: 'subnet-priv-1', style: { stroke: '#475569' } },
-      { id: 'e-priv-lambda', source: 'subnet-priv-1', target: 'lambda-1', animated: true, style: { stroke: '#06B6D4' } },
-      { id: 'e-iam-lambda', source: 'iam-role-1', target: 'lambda-1', style: { stroke: '#E11D48', strokeDasharray: '4 4' } },
-      { id: 'e-lambda-s3', source: 'lambda-1', target: 's3-bucket-1', animated: true, style: { stroke: '#10B981' } },
-      { id: 'e-lambda-cw', source: 'lambda-1', target: 'cloudwatch-1', style: { stroke: '#F59E0B' } },
-    ],
-    resources: [
-      {
-        id: 'res-vpc',
-        name: 'main_vpc',
-        type: 'aws_vpc',
-        service: 'vpc',
-        arn: 'arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0981a',
-        file: 'vpc.tf',
-        lineNumber: 2,
-        status: 'valid',
-        encryption: 'default',
-        exposure: 'private',
-        attributes: { cidr_block: '10.0.0.0/16', enable_dns_hostnames: true },
-      },
-      {
-        id: 'res-lambda',
-        name: 'order_processor',
-        type: 'aws_lambda_function',
-        service: 'compute',
-        arn: 'arn:aws:lambda:us-east-1:123456789012:function:order_processor',
-        file: 'main.tf',
-        lineNumber: 23,
-        status: 'valid',
-        encryption: 'default',
-        exposure: 'private',
-        attributes: { runtime: 'nodejs20.x', memory: 256, timeout: 15 },
-      },
-      {
-        id: 'res-s3',
-        name: 'primary_storage',
-        type: 'aws_s3_bucket',
-        service: 'storage',
-        arn: 'arn:aws:s3:::cloudpilot-prod-app-assets',
-        file: 'main.tf',
-        lineNumber: 47,
-        status: 'valid',
-        encryption: 'default',
-        exposure: 'private',
-        attributes: { public_access_block: true, versioning: true },
-      },
-      {
-        id: 'res-iam',
-        name: 'lambda_exec',
-        type: 'aws_iam_role',
-        service: 'security',
-        arn: 'arn:aws:iam::123456789012:role/lambda_exec',
-        file: 'iam.tf',
-        lineNumber: 12,
-        status: 'valid',
-        encryption: 'none',
-        exposure: 'private',
-        attributes: { assume_role: 'lambda.amazonaws.com', wildcard_free: true },
-      },
-    ],
-    securityFindings: [
-      {
-        id: 'f-1',
-        rule: 'CIS 2.1.1 - S3 Bucket Server-Side Encryption',
-        severity: 'medium',
-        category: 'Encryption',
-        status: 'warning',
-        resourceId: 'aws_s3_bucket.primary_storage',
-        description: 'S3 bucket uses default AWS encryption instead of Customer-Managed Key (KMS CMK).',
-        remediationPrompt: 'Enable customer-managed KMS encryption on S3 primary storage.',
-      },
-      {
-        id: 'f-2',
-        rule: 'CIS 2.9 - VPC Flow Logs Enabled',
-        severity: 'low',
-        category: 'Logging',
-        status: 'passed',
-        resourceId: 'aws_vpc.main_vpc',
-        description: 'VPC network traffic flow is recorded to CloudWatch logs.',
-        remediationPrompt: 'Configure aws_flow_log on main_vpc.',
-      },
-      {
-        id: 'f-3',
-        rule: 'CIS 1.16 - IAM Zero Wildcard Actions',
-        severity: 'high',
-        category: 'IAM',
-        status: 'passed',
-        resourceId: 'aws_iam_policy.s3_access',
-        description: 'All IAM actions are strictly scoped without unrestricted * wildcards.',
-        remediationPrompt: 'Scope down IAM actions to specific ARNs.',
-      },
-    ],
+    nodes: [],
+    edges: [],
+    resources: [],
+    securityFindings: [],
   },
   {
     id: 'proj-kms-lake',
-    name: 'Hardened S3 Data Lake with KMS',
-    description: 'Enterprise object storage with customer-managed KMS keys, bucket keying, TLS 1.3 enforcement, and audit logs.',
-    region: 'us-east-1',
-    updatedAt: '1 hour ago',
+    name: 'NAT Egress & Hardened KMS Data Lake',
+    description:
+      'Complete CIS-hardened topology with NAT Gateway private egress, KMS Customer Managed Key, S3 bucket keying, and VPC Flow Logs.',
+    region: 'us-west-2',
+    updatedAt: 'Simulated sample',
     activeFileName: 'main.tf',
     files: {
       'main.tf': `terraform {
@@ -449,18 +289,18 @@ output "s3_bucket_name" {
   }
 }
 
+provider "aws" {
+  region = var.aws_region
+}
+
 resource "aws_kms_key" "datalake_key" {
-  description             = "Customer Managed Key for Data Lake"
+  description             = "Customer Managed Key for Data Lake encryption"
   deletion_window_in_days = 30
   enable_key_rotation     = true
-
-  tags = {
-    ManagedBy = "TerraGen-AI"
-  }
 }
 
 resource "aws_s3_bucket" "datalake" {
-  bucket        = "cloudpilot-secure-lake-prod"
+  bucket        = "cloudpilot-sim-secure-lake-usw2"
   force_destroy = false
 }
 
@@ -483,101 +323,302 @@ resource "aws_s3_bucket_public_access_block" "block" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
-}`,
+}
+
+resource "aws_lambda_function" "parquet_ingestor" {
+  function_name = "datalake-parquet-ingestor"
+  role          = aws_iam_role.ingestor_exec.arn
+  handler       = "index.handler"
+  runtime       = "python3.12"
+  timeout       = 30
+  memory_size   = 512
+
+  vpc_config {
+    subnet_ids         = [aws_subnet.private_subnet_a.id]
+    security_group_ids = [aws_security_group.ingestor_sg.id]
+  }
+
+  tracing_config {
+    mode = "Active"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "ingestor_logs" {
+  name              = "/aws/lambda/datalake-parquet-ingestor"
+  retention_in_days = 90
+}
+`,
+      'vpc.tf': `resource "aws_vpc" "datalake_vpc" {
+  cidr_block           = "10.20.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+}
+
+resource "aws_internet_gateway" "main_igw" {
+  vpc_id = aws_vpc.datalake_vpc.id
+}
+
+resource "aws_subnet" "public_subnet_a" {
+  vpc_id                  = aws_vpc.datalake_vpc.id
+  cidr_block              = "10.20.1.0/24"
+  availability_zone       = "us-west-2a"
+  map_public_ip_on_launch = false
+
+  tags = {
+    Tier = "Public"
+  }
+}
+
+resource "aws_eip" "nat_ip" {
+  domain = "vpc"
+}
+
+resource "aws_nat_gateway" "primary_nat" {
+  allocation_id     = aws_eip.nat_ip.id
+  subnet_id         = aws_subnet.public_subnet_a.id
+  connectivity_type = "public"
+}
+
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.datalake_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main_igw.id
+  }
+}
+
+resource "aws_subnet" "private_subnet_a" {
+  vpc_id                  = aws_vpc.datalake_vpc.id
+  cidr_block              = "10.20.2.0/24"
+  availability_zone       = "us-west-2a"
+  map_public_ip_on_launch = false
+
+  tags = {
+    Tier = "Private"
+  }
+}
+
+resource "aws_route_table" "private_rt" {
+  vpc_id = aws_vpc.datalake_vpc.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.primary_nat.id
+  }
+}
+
+resource "aws_security_group" "ingestor_sg" {
+  name        = "datalake-ingestor-sg"
+  description = "Private ETL security group with stateful HTTPS egress"
+  vpc_id      = aws_vpc.datalake_vpc.id
+
+  egress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_flow_log" "vpc_audit" {
+  vpc_id          = aws_vpc.datalake_vpc.id
+  traffic_type    = "ALL"
+  log_destination = aws_cloudwatch_log_group.ingestor_logs.arn
+}
+`,
+      'iam.tf': `resource "aws_iam_role" "ingestor_exec" {
+  name               = "datalake-parquet-ingestor-role"
+  assume_role_policy = "{}"
+}
+
+resource "aws_iam_policy" "datalake_scoped" {
+  name = "datalake-kms-s3-scoped"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "kms:GenerateDataKey"]
+        Resource = "\${aws_s3_bucket.datalake.arn}/*"
+      }
+    ]
+  })
+}
+`,
       'variables.tf': `variable "aws_region" {
   type    = string
-  default = "us-east-1"
-}`,
+  default = "us-west-2"
+}
+`,
       'outputs.tf': `output "kms_key_arn" {
   value = aws_kms_key.datalake_key.arn
 }
 
 output "bucket_id" {
   value = aws_s3_bucket.datalake.id
-}`,
+}
+`,
     },
     messages: [
       {
         id: 'msg-lake-1',
         sender: 'assistant',
-        timestamp: '9:30 AM',
-        content: 'Data Lake project initialized with Customer Managed KMS Key (CMK) and strict public access block.',
-        changedFiles: ['main.tf', 'variables.tf', 'outputs.tf'],
-        addedResources: ['aws_kms_key', 'aws_s3_bucket'],
+        timestamp: '09:30 AM',
+        content:
+          'Simulated Data Lake architecture loaded in `us-west-2` with NAT Gateway private egress, KMS Customer Managed Key (CMK), S3 Bucket Key encryption, and VPC Flow Logs.',
+        changedFiles: ['main.tf', 'vpc.tf', 'iam.tf'],
+        addedResources: [
+          'aws_vpc.datalake_vpc',
+          'aws_nat_gateway.primary_nat',
+          'aws_kms_key.datalake_key',
+          'aws_s3_bucket.datalake',
+          'aws_lambda_function.parquet_ingestor',
+        ],
+        securityNote: '100% CIS AWS Foundations v3.0 simulated benchmark score.',
       },
     ],
-    nodes: [
-      {
-        id: 'kms-lake-1',
-        type: 'awsNode',
-        position: { x: 200, y: 150 },
-        data: {
-          label: 'AWS KMS Key (CMK)',
-          service: 'security',
-          category: 'AWS KMS',
-          arn: 'arn:aws:kms:us-east-1:123456789012:key/lake-key-1',
-          details: 'Automatic 365-day rotation with bucket key enabled',
-          status: 'valid',
-          file: 'main.tf',
-        },
-      },
-      {
-        id: 's3-lake-1',
-        type: 'awsNode',
-        position: { x: 500, y: 150 },
-        data: {
-          label: 'S3: Data Lake Storage',
-          service: 'storage',
-          category: 'Amazon S3',
-          arn: 'arn:aws:s3:::cloudpilot-secure-lake-prod',
-          details: 'Server-side encrypted at rest with customer KMS key',
-          status: 'valid',
-          file: 'main.tf',
-        },
-      },
-    ],
-    edges: [
-      { id: 'e-kms-lake', source: 'kms-lake-1', target: 's3-lake-1', animated: true, style: { stroke: '#A855F7' } },
-    ],
-    resources: [
-      {
-        id: 'res-kms',
-        name: 'datalake_key',
-        type: 'aws_kms_key',
-        service: 'security',
-        arn: 'arn:aws:kms:us-east-1:123456789012:key/lake-key-1',
-        file: 'main.tf',
-        lineNumber: 12,
-        status: 'valid',
-        encryption: 'kms',
-        exposure: 'private',
-        attributes: { rotation: true, deletion_window: 30 },
-      },
-      {
-        id: 'res-lake-s3',
-        name: 'datalake',
-        type: 'aws_s3_bucket',
-        service: 'storage',
-        arn: 'arn:aws:s3:::cloudpilot-secure-lake-prod',
-        file: 'main.tf',
-        lineNumber: 22,
-        status: 'valid',
-        encryption: 'kms',
-        exposure: 'private',
-        attributes: { bucket_key: true, public_access_block: true },
-      },
-    ],
-    securityFindings: [
-      {
-        id: 'f-lake-1',
-        rule: 'CIS 2.1.1 - S3 Bucket Server-Side Encryption',
-        severity: 'high',
-        category: 'Encryption',
-        status: 'passed',
-        resourceId: 'aws_s3_bucket.datalake',
-        description: 'S3 bucket is encrypted using Customer Managed Key (CMK).',
-        remediationPrompt: '',
-      },
-    ],
+    nodes: [],
+    edges: [],
+    resources: [],
+    securityFindings: [],
   },
 ];
+
+export const INITIAL_PROJECTS: ProjectData[] = RAW_PROJECTS.map((proj) =>
+  synchronizeProjectState(proj)
+);
+
+/**
+ * Creates a synchronized starter project from user-selected template options.
+ */
+export function createSynchronizedStarterProject(
+  name: string,
+  description: string,
+  region: string,
+  template: string
+): ProjectData {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  let files: Record<string, string>;
+
+  if (template === 'vpc-serverless') {
+    files = {
+      ...RAW_PROJECTS[0].files,
+      'variables.tf': `variable "aws_region" {\n  type    = string\n  default = "${region}"\n}\n\nvariable "environment" {\n  type    = string\n  default = "${slug}"\n}\n`,
+    };
+  } else if (template === 's3-kms') {
+    files = {
+      'main.tf': `terraform {
+  required_version = ">= 1.8.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.40"
+    }
+  }
+}
+
+provider "aws" {
+  region = "${region}"
+}
+
+resource "aws_kms_key" "data_key" {
+  description             = "Customer Managed Key for ${name}"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+}
+
+resource "aws_s3_bucket" "primary_storage" {
+  bucket        = "${slug}-secure-bucket"
+  force_destroy = false
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "kms_enc" {
+  bucket = aws_s3_bucket.primary_storage.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.data_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "block" {
+  bucket                  = aws_s3_bucket.primary_storage.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_cloudwatch_log_group" "storage_audit" {
+  name              = "/aws/s3/${slug}-audit"
+  retention_in_days = 90
+}
+`,
+      'variables.tf': `variable "aws_region" {\n  default = "${region}"\n}\n`,
+      'outputs.tf': `output "bucket_name" {\n  value = aws_s3_bucket.primary_storage.id\n}\n`,
+    };
+  } else {
+    files = {
+      'main.tf': `terraform {
+  required_version = ">= 1.8.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.40"
+    }
+  }
+}
+
+provider "aws" {
+  region = "${region}"
+}
+
+resource "aws_s3_bucket" "starter_bucket" {
+  bucket        = "${slug}-artifacts"
+  force_destroy = false
+}
+
+resource "aws_s3_bucket_public_access_block" "starter_block" {
+  bucket                  = aws_s3_bucket.starter_bucket.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+`,
+      'variables.tf': `variable "aws_region" {\n  default = "${region}"\n}\n`,
+      'outputs.tf': `output "region" {\n  value = var.aws_region\n}\n`,
+    };
+  }
+
+  const base: ProjectData = {
+    id: `proj-${Date.now()}`,
+    name,
+    description:
+      description || 'Simulated Terraform infrastructure project managed via TerraGen AI.',
+    region,
+    updatedAt: 'Just now',
+    activeFileName: files['vpc.tf'] ? 'vpc.tf' : 'main.tf',
+    files,
+    messages: [
+      {
+        id: `msg-${Date.now()}`,
+        sender: 'assistant',
+        timestamp: 'Just now',
+        content: `Created simulated project "${name}" in region \`${region}\` using template \`${template}\`. Diagram nodes, resource inventory, and HCL files are synchronized.`,
+        securityNote: 'Simulated offline HCL environment — no live AWS connection.',
+      },
+    ],
+    nodes: [],
+    edges: [],
+    resources: [],
+    securityFindings: [],
+  };
+
+  return synchronizeProjectState(base);
+}

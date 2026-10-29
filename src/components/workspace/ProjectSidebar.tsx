@@ -71,7 +71,7 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
   };
 
   return (
-    <aside className="w-72 shrink-0 border-r border-white/10 bg-[#060810] flex flex-col h-[calc(100vh-3.5rem)] select-none">
+    <aside className="w-72 shrink-0 border-r border-white/10 bg-[#060810] flex flex-col h-full select-none">
       {/* Sidebar Header */}
       <div className="p-3.5 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-mono font-semibold uppercase tracking-wider text-slate-300">
@@ -153,19 +153,19 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
                     {project.description}
                   </p>
 
-                  <div className="flex items-center gap-2.5 text-[10px] text-slate-500 font-mono mt-2">
-                    <span className="flex items-center gap-1 text-cyan-400/90">
-                      <Globe className="w-3 h-3" />
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500 font-mono mt-2">
+                    <span className="inline-flex items-center gap-1 text-cyan-400/90 whitespace-nowrap shrink-0">
+                      <Globe className="w-3 h-3 shrink-0" />
                       <span>{project.region}</span>
                     </span>
-                    <span>·</span>
-                    <span className="flex items-center gap-1">
-                      <FileCode2 className="w-3 h-3" />
+                    <span aria-hidden="true">·</span>
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                      <FileCode2 className="w-3 h-3 shrink-0" />
                       <span>{fileCount} files</span>
                     </span>
-                    <span>·</span>
-                    <span className="flex items-center gap-1">
-                      <Database className="w-3 h-3" />
+                    <span aria-hidden="true">·</span>
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                      <Database className="w-3 h-3 shrink-0" />
                       <span>{resourceCount} res</span>
                     </span>
                   </div>
@@ -199,9 +199,7 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
                         title="Delete Project"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Delete project "${project.name}"?`)) {
-                            onDeleteProject(project.id);
-                          }
+                          onDeleteProject(project.id);
                         }}
                         className="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-white/10"
                       >

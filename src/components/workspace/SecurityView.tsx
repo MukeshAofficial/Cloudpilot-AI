@@ -20,7 +20,7 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
   onRemediate,
 }) => {
   const passedCount = findings.filter((f) => f.status === 'passed').length;
-  const score = Math.round((passedCount / findings.length) * 100);
+  const score = findings.length > 0 ? Math.round((passedCount / findings.length) * 100) : 100;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#060810] p-6 overflow-y-auto select-none">

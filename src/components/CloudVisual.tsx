@@ -196,7 +196,7 @@ export const CloudVisual: React.FC<CloudVisualProps> = ({ onSelectServicePrompt 
 
         {/* Ambient status below core */}
         <div className="mt-2 text-[10px] font-mono text-cyan-300/80 bg-cyan-950/40 border border-cyan-500/20 px-2 py-0.5 rounded">
-          Connected · 7 AWS Services
+          Simulated Preview · 7 AWS Services
         </div>
       </div>
 

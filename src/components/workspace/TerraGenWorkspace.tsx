@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Node, Edge, applyNodeChanges, applyEdgeChanges, OnNodesChange, OnEdgesChange } from '@xyflow/react';
+import {
+  applyNodeChanges,
+  applyEdgeChanges,
+  OnNodesChange,
+  OnEdgesChange,
+} from '@xyflow/react';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { ProjectSidebar } from './ProjectSidebar';
 import { AiChatConsole } from './AiChatConsole';
@@ -10,24 +15,40 @@ import { ResourcesView } from './ResourcesView';
 import { SecurityView } from './SecurityView';
 import { ValidationView } from './ValidationView';
 import { BottomConsolePanel } from './BottomConsolePanel';
-import { INITIAL_PROJECTS } from '../../data/initialProjects';
-import { ProjectData, WorkspaceViewMode, BottomPanelTab } from '../../types/workspace';
+import {
+  INITIAL_PROJECTS,
+  createSynchronizedStarterProject,
+} from '../../data/initialProjects';
+import {
+  AwsResourceItem,
+  HighlightedCodeBlock,
+  ProjectData,
+  WorkspaceViewMode,
+  BottomPanelTab,
+} from '../../types/workspace';
 import {
   simulateTerraformFmt,
   simulateTerraformValidate,
   simulateSecurityScan,
   applyAiPromptToProject,
 } from '../../utils/terraformEngine';
+import { synchronizeProjectState } from '../../utils/terraformSync';
 import confetti from 'canvas-confetti';
 
-interface TerraGenWorkspaceProps {
-  onBackToLanding: () => void;
+function getInitialViewMode(): WorkspaceViewMode {
+  if (typeof window === 'undefined') return 'editor';
+  const params = new URLSearchParams(window.location.search);
+  const v = params.get('view');
+  if (v === 'diagram' || v === 'resources' || v === 'security' || v === 'validation' || v === 'editor') {
+    return v;
+  }
+  return 'editor';
 }
 
-export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLanding }) => {
+export const TerraGenWorkspace: React.FC = () => {
   const [projects, setProjects] = useState<ProjectData[]>(INITIAL_PROJECTS);
   const [currentProjectId, setCurrentProjectId] = useState<string>(INITIAL_PROJECTS[0].id);
-  const [viewMode, setViewMode] = useState<WorkspaceViewMode>('editor');
+  const [viewMode, setViewMode] = useState<WorkspaceViewMode>(getInitialViewMode);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -38,11 +59,16 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
   const [validateOutput, setValidateOutput] = useState('');
   const [securityOutput, setSecurityOutput] = useState('');
 
-  // Selected node for inspector drawer
-  const [inspectedNode, setInspectedNode] = useState<Node | null>(null);
+  // Selected resource for inspector drawer & highlighted HCL block
+  const [inspectedResourceId, setInspectedResourceId] = useState<string | null>(null);
+  const [highlightedBlock, setHighlightedBlock] = useState<HighlightedCodeBlock | null>(null);
 
   // Active project
   const currentProject = projects.find((p) => p.id === currentProjectId) || projects[0];
+
+  const inspectedResource = inspectedResourceId
+    ? currentProject.resources.find((r) => r.id === inspectedResourceId) || null
+    : null;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -52,7 +78,7 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
         setSidebarOpen((prev) => !prev);
       }
       if (e.key === 'Escape') {
-        setInspectedNode(null);
+        setInspectedResourceId(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -66,7 +92,14 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
     );
   };
 
-  // React Flow node changes
+  // Switch active project cleanly
+  const handleSelectProject = (projectId: string) => {
+    setCurrentProjectId(projectId);
+    setInspectedResourceId(null);
+    setHighlightedBlock(null);
+  };
+
+  // React Flow node changes (preserves user-dragged coordinates)
   const onNodesChange: OnNodesChange = (changes) => {
     updateCurrentProject((prev) => ({
       ...prev,
@@ -82,32 +115,39 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
     }));
   };
 
-  // AI Prompt Send Handler
+  // Reset layout positions back to canonical architectural tiers
+  const handleResetLayout = () => {
+    updateCurrentProject((prev) => synchronizeProjectState(prev, { resetLayout: true }));
+  };
+
+  // AI Prompt Send Handler (synchronizes files, diagram, resources, and security)
   const handleSendMessage = (prompt: string) => {
     setIsGenerating(true);
     setTimeout(() => {
       updateCurrentProject((prev) => applyAiPromptToProject(prev, prompt));
       setIsGenerating(false);
 
-      // Trigger celebratory micro-confetti on successful generation
       confetti({
-        particleCount: 30,
+        particleCount: 28,
         spread: 45,
         origin: { y: 0.9 },
         colors: ['#06B6D4', '#6366F1', '#A855F7'],
       });
-    }, 700);
+    }, 450);
   };
 
-  // Code editor updates
+  // Synchronized Code Editor Updates
   const handleUpdateFileContent = (fileName: string, content: string) => {
-    updateCurrentProject((prev) => ({
-      ...prev,
-      files: {
-        ...prev.files,
-        [fileName]: content,
-      },
-    }));
+    updateCurrentProject((prev) =>
+      synchronizeProjectState({
+        ...prev,
+        updatedAt: 'Just now',
+        files: {
+          ...prev.files,
+          [fileName]: content,
+        },
+      })
+    );
   };
 
   const handleSelectFile = (fileName: string) => {
@@ -118,14 +158,17 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
   };
 
   const handleCreateFile = (fileName: string) => {
-    updateCurrentProject((prev) => ({
-      ...prev,
-      files: {
-        ...prev.files,
-        [fileName]: `# ${fileName} - Generated by TerraGen AI\n`,
-      },
-      activeFileName: fileName,
-    }));
+    updateCurrentProject((prev) =>
+      synchronizeProjectState({
+        ...prev,
+        updatedAt: 'Just now',
+        files: {
+          ...prev.files,
+          [fileName]: `# ${fileName} - Simulated HCL configuration\n`,
+        },
+        activeFileName: fileName,
+      })
+    );
   };
 
   const handleDeleteFile = (fileName: string) => {
@@ -133,12 +176,29 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
       const newFiles = { ...prev.files };
       delete newFiles[fileName];
       const remainingNames = Object.keys(newFiles);
-      return {
+      return synchronizeProjectState({
         ...prev,
+        updatedAt: 'Just now',
         files: newFiles,
         activeFileName: remainingNames[0] || 'main.tf',
-      };
+      });
     });
+  };
+
+  // Open exact file and highlight/select resource block from Inspector or Inventory
+  const handleOpenResourceInCode = (resource: AwsResourceItem) => {
+    updateCurrentProject((prev) => ({
+      ...prev,
+      activeFileName: resource.file,
+    }));
+    setHighlightedBlock({
+      fileName: resource.file,
+      terraformAddress: resource.terraformAddress,
+      startLine: resource.lineNumber,
+      endLine: resource.endLine,
+      timestamp: Date.now(),
+    });
+    setViewMode('editor');
   };
 
   // Project operations
@@ -148,48 +208,15 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
     region: string,
     template: string
   ) => {
-    const newId = `proj-${Date.now()}`;
-    const newProject: ProjectData = {
-      id: newId,
-      name,
-      description: description || 'Terraform infrastructure project managed via TerraGen AI.',
-      region,
-      updatedAt: 'Just now',
-      activeFileName: 'main.tf',
-      files: {
-        'main.tf': `terraform {\n  required_version = ">= 1.8.0"\n  required_providers {\n    aws = {\n      source  = "hashicorp/aws"\n      version = "~> 5.40"\n    }\n  }\n}\n\nprovider "aws" {\n  region = "${region}"\n}\n`,
-        'variables.tf': `variable "aws_region" {\n  default = "${region}"\n}\n`,
-        'outputs.tf': `output "region" {\n  value = var.aws_region\n}\n`,
-      },
-      messages: [
-        {
-          id: `msg-${Date.now()}`,
-          sender: 'assistant',
-          timestamp: 'Just now',
-          content: `New project "${name}" created in region ${region}. Ready to synthesize your cloud infrastructure.`,
-        },
-      ],
-      nodes: [
-        {
-          id: 'region-1',
-          type: 'regionNode',
-          position: { x: 50, y: 50 },
-          data: { label: `AWS Region: ${region}` },
-        },
-      ],
-      edges: [],
-      resources: [],
-      securityFindings: [],
-    };
-
+    const newProject = createSynchronizedStarterProject(name, description, region, template);
     setProjects((prev) => [newProject, ...prev]);
-    setCurrentProjectId(newId);
+    setCurrentProjectId(newProject.id);
+    setInspectedResourceId(null);
+    setHighlightedBlock(null);
   };
 
   const handleRenameProject = (id: string, newName: string) => {
-    setProjects((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, name: newName } : p))
-    );
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name: newName } : p)));
   };
 
   const handleDuplicateProject = (id: string) => {
@@ -208,10 +235,12 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
 
   const handleDeleteProject = (id: string) => {
     if (projects.length <= 1) return;
-    setProjects((prev) => prev.filter((p) => p.id !== id));
+    const remaining = projects.filter((p) => p.id !== id);
+    setProjects(remaining);
     if (currentProjectId === id) {
-      const remaining = projects.filter((p) => p.id !== id);
       setCurrentProjectId(remaining[0].id);
+      setInspectedResourceId(null);
+      setHighlightedBlock(null);
     }
   };
 
@@ -222,7 +251,9 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
     const res = simulateTerraformFmt(content);
     if (res.changed) {
       handleUpdateFileContent(activeFile, res.formatted);
-      setFmtOutput(`Formatted ${activeFile}\n2 lines reformatted to canonical 2-space indentation.`);
+      setFmtOutput(
+        `Formatted ${activeFile}\nReformatted to canonical 2-space HCL indentation.`
+      );
     } else {
       setFmtOutput(`${activeFile} is already canonically formatted.`);
     }
@@ -242,7 +273,7 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
   const handleRunSecurity = () => {
     const res = simulateSecurityScan(currentProject.files);
     setSecurityOutput(
-      `CIS Benchmark Posture Score: ${res.score}%\nPassed: ${res.passed} | Warnings: ${res.warnings} | Failures: ${res.failures}\nAll resources evaluated against CIS AWS Foundations Benchmark 3.0.`
+      `Simulated CIS Benchmark Posture Score: ${res.score}%\nPassed: ${res.passed} | Warnings: ${res.warnings} | Failures: ${res.failures}\nEvaluated against CIS AWS Foundations Benchmark v3.0.`
     );
     setBottomTab('security');
     setBottomCollapsed(false);
@@ -250,7 +281,7 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
 
   // Export full project
   const handleExportProject = () => {
-    let combined = `# ===========================================\n# TerraGen AI Export - ${currentProject.name}\n# Region: ${currentProject.region}\n# ===========================================\n\n`;
+    let combined = `# ===========================================\n# TerraGen AI Simulated Export - ${currentProject.name}\n# Region: ${currentProject.region}\n# ===========================================\n\n`;
     for (const [name, code] of Object.entries(currentProject.files)) {
       combined += `# --- File: ${name} ---\n${code}\n\n`;
     }
@@ -269,7 +300,7 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
       <WorkspaceHeader
         currentProject={currentProject}
         projects={projects}
-        onSelectProject={setCurrentProjectId}
+        onSelectProject={handleSelectProject}
         viewMode={viewMode}
         onChangeViewMode={setViewMode}
         sidebarOpen={sidebarOpen}
@@ -277,7 +308,6 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
         onRunFormat={handleRunFormat}
         onRunValidate={handleRunValidate}
         onExportProject={handleExportProject}
-        onBackToLanding={onBackToLanding}
       />
 
       {/* Main Workspace Area */}
@@ -287,7 +317,7 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
           isOpen={sidebarOpen}
           projects={projects}
           currentProjectId={currentProjectId}
-          onSelectProject={setCurrentProjectId}
+          onSelectProject={handleSelectProject}
           onCreateProject={handleCreateProject}
           onRenameProject={handleRenameProject}
           onDuplicateProject={handleDuplicateProject}
@@ -319,6 +349,9 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
                   onDeleteFile={handleDeleteFile}
                   onFormatCode={handleRunFormat}
                   originalSnapshot={currentProject.originalFilesSnapshot}
+                  highlightedBlock={highlightedBlock}
+                  onClearHighlight={() => setHighlightedBlock(null)}
+                  onSwitchToDiagram={() => setViewMode('diagram')}
                 />
               </div>
             </div>
@@ -328,19 +361,19 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
             <ArchitectureDiagram
               nodes={currentProject.nodes}
               edges={currentProject.edges}
+              resources={currentProject.resources}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
-              onSelectNode={(node) => setInspectedNode(node)}
+              onSelectResource={(res) => setInspectedResourceId(res.id)}
+              onResetLayout={handleResetLayout}
             />
           )}
 
           {viewMode === 'resources' && (
             <ResourcesView
               resources={currentProject.resources}
-              onSelectResource={(file) => {
-                handleSelectFile(file);
-                setViewMode('editor');
-              }}
+              onOpenInTerraformCode={handleOpenResourceInCode}
+              onInspectResource={(res) => setInspectedResourceId(res.id)}
             />
           )}
 
@@ -377,14 +410,11 @@ export const TerraGenWorkspace: React.FC<TerraGenWorkspaceProps> = ({ onBackToLa
         </div>
       </div>
 
-      {/* Slide-over Resource Inspector Drawer */}
+      {/* Slide-over AWS Resource Inspector Drawer */}
       <ResourceInspectorDrawer
-        node={inspectedNode}
-        onClose={() => setInspectedNode(null)}
-        onJumpToCode={(file) => {
-          handleSelectFile(file);
-          setViewMode('editor');
-        }}
+        resource={inspectedResource}
+        onClose={() => setInspectedResourceId(null)}
+        onOpenInTerraformCode={handleOpenResourceInCode}
       />
     </div>
   );

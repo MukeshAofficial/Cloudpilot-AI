@@ -19,18 +19,48 @@ export interface ChatMessage {
   diffSummary?: string;
 }
 
+export type AwsIconKey =
+  | 'region'
+  | 'vpc'
+  | 'subnet-public'
+  | 'subnet-private'
+  | 'igw'
+  | 'nat-gateway'
+  | 'route-table'
+  | 'security-group'
+  | 'lambda'
+  | 's3'
+  | 'iam'
+  | 'cloudwatch'
+  | 'kms'
+  | 'eip';
+
 export interface AwsResourceItem {
   id: string;
   name: string;
   type: string;
+  terraformAddress: string;
+  iconKey: AwsIconKey;
   service: 'vpc' | 'compute' | 'storage' | 'database' | 'security' | 'network' | 'observability';
   arn: string;
   file: string;
   lineNumber: number;
+  endLine: number;
   status: 'valid' | 'provisioned' | 'updated';
   encryption: 'kms' | 'default' | 'none';
   exposure: 'private' | 'public';
+  subnetTier: 'public' | 'private' | 'vpc' | 'regional';
+  securitySummary: string;
+  details: string;
   attributes: Record<string, string | number | boolean>;
+}
+
+export interface HighlightedCodeBlock {
+  fileName: string;
+  terraformAddress: string;
+  startLine: number;
+  endLine: number;
+  timestamp: number;
 }
 
 export interface SecurityFinding {

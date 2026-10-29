@@ -17,10 +17,14 @@ import { TerraGenWorkspace } from './components/workspace/TerraGenWorkspace';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
-  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('autostart') === '1' || params.get('workspace') === '1';
+  });
   const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
   const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | null>(null);
-  const [selectedPrompt, setSelectedPrompt] = useState<string>('');
+  const [, setSelectedPrompt] = useState<string>('');
 
   const handleSelectPrompt = (prompt: string) => {
     setSelectedPrompt(prompt);
@@ -28,11 +32,7 @@ export default function App() {
 
   // If TerraGen AI Workspace is active, render the full IDE interface
   if (isWorkspaceOpen) {
-    return (
-      <TerraGenWorkspace
-        onBackToLanding={() => setIsWorkspaceOpen(false)}
-      />
-    );
+    return <TerraGenWorkspace />;
   }
 
   return (
